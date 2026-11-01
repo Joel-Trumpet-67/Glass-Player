@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#0b0b10">
+<title>Glass Player</title>
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-title" content="Glass">
+<style>
+:root{
+  --bg:#0b0b10;
+  --text:#f5f5f7;
+  --text-2:rgba(245,245,247,.62);
+  --text-3:rgba(245,245,247,.38);
+  --accent:#ff5f6d;
+  /* Glass recipe: tint + blur + saturation + specular rim + soft drop shadow */
+  --glass-tint:rgba(255,255,255,.08);
+  --glass-tint-strong:rgba(255,255,255,.14);
+  --glass-rim:rgba(255,255,255,.35);
+  --glass-rim-low:rgba(255,255,255,.06);
+  --glass-shadow:0 10px 40px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.2);
+  --r-pill:999px;
+  --r-card:22px;
+  --safe-b:env(safe-area-inset-bottom,0px);
+  --safe-t:env(safe-area-inset-top,0px);
+  --ease:cubic-bezier(.32,.72,0,1);
+  --spring:cubic-bezier(.34,1.56,.64,1);
+}
+*{box-sizing:border-box;margin:0;padding:0;-webkit-tap-highlight-color:transparent}
+html,body{height:100%;background:var(--bg);color:var(--text);
+  font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text","Inter",system-ui,sans-serif;
+  -webkit-font-smoothing:antialiased;overflow:hidden;overscroll-behavior:none}
+button{font:inherit;color:inherit;background:none;border:0;cursor:pointer}
+
+/* ---------- CONTENT LAYER (no glass here, per HIG) ---------- */
+.ambient{position:fixed;inset:-20%;z-index:0;filter:blur(80px) saturate(140%);opacity:.55;transition:background 1.2s var(--ease)}
+.app{position:relative;z-index:1;height:100%;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  padding:calc(var(--safe-t) + 64px) 16px calc(var(--safe-b) + 170px)}
+.view{display:none;animation:fadeUp .45s var(--ease)}
+.view.active{display:block}
+@keyframes fadeUp{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+h1{font-size:34px;font-weight:700;letter-spacing:-.02em;margin:6px 4px 18px}
+h2{font-size:20px;font-weight:650;letter-spacing:-.01em;margin:26px 4px 12px;display:flex;justify-content:space-between;align-items:baseline}
+h2 span{font-size:15px;font-weight:500;color:var(--accent)}
+
+.hero{position:relative;border-radius:28px;overflow:hidden;aspect-ratio:1.35;display:flex;align-items:flex-end;padding:18px}
+.hero .art{position:absolute;inset:0}
+.hero .meta{position:relative}
+.hero small{font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:rgba(255,255,255,.75)}
+.hero h3{font-size:26px;font-weight:700;letter-spacing:-.02em;margin-top:4px}
+
+.row{display:flex;gap:14px;overflow-x:auto;scroll-snap-type:x mandatory;margin:0 -16px;padding:0 16px 4px;scrollbar-width:none}
+.row::-webkit-scrollbar{display:none}
+.tile{flex:0 0 148px;scroll-snap-align:start;text-align:left}
+.tile .art{width:148px;height:148px;border-radius:18px;margin-bottom:8px;transition:transform .35s var(--spring)}
+.tile:active .art{transform:scale(.95)}
+.tile b{display:block;font-size:14px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tile i{font-style:normal;font-size:13px;color:var(--text-2)}
+
+.list{display:flex;flex-direction:column}
+.track{display:flex;align-items:center;gap:12px;padding:8px 4px;border-radius:14px;text-align:left;width:100%;transition:background .2s}
+.track:active{background:rgba(255,255,255,.06)}
+.track .art{width:52px;height:52px;border-radius:10px;flex:none}
+.track .t{flex:1;min-width:0;border-bottom:.5px solid rgba(255,255,255,.08);padding:6px 0 12px}
+.track b{display:block;font-size:16px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.track i{font-style:normal;font-size:14px;color:var(--text-2)}
+.track.playing b{color:var(--accent)}
+.track .dur{font-size:13px;color:var(--text-3);font-variant-numeric:tabular-nums}
+
+.search-field{display:flex;align-items:center;gap:10px;height:48px;padding:0 16px;border-radius:var(--r-pill);
+  background:rgba(255,255,255,.08);margin-bottom:8px}
+.search-field input{flex:1;background:none;border:0;outline:0;color:var(--text);font:inherit;font-size:17px}
+.search-field input::placeholder{color:var(--text-3)}
+
+.chips{display:flex;gap:8px;flex-wrap:wrap;margin:6px 0 4px}
+.chip{padding:8px 14px;border-radius:var(--r-pill);background:rgba(255,255,255,.08);font-size:14px;font-weight:500}
+.chip.on{background:var(--text);color:#000}
+
+/* Generated album art (no images needed) */
+.art{background:var(--g);position:relative;overflow:hidden}
+.art::after{content:"";position:absolute;inset:0;background:radial-gradient(120% 80% at 20% 10%,rgba(255,255,255,.28),transparent 55%)}
+
+/* ---------- GLASS LAYER (controls & navigation only) ---------- */
+.glass{
+  position:relative;
+  background:var(--glass-tint);
+  -webkit-backdrop-filter:blur(22px) saturate(180%) brightness(1.05);
+  backdrop-filter:blur(22px) saturate(180%) brightness(1.05);
+  box-shadow:var(--glass-shadow), inset 0 1px 0 var(--glass-rim), inset 0 -1px 0 var(--glass-rim-low), inset 0 0 0 .5px rgba(255,255,255,.12);
+  isolation:isolate;
+}
+/* specular highlight — the "light catching the edge" look */
+.glass::before{
+  content:"";position:absolute;inset:0;border-radius:inherit;pointer-events:none;z-index:-1;
+  background:
+    linear-gradient(180deg,rgba(255,255,255,.22) 0%,rgba(255,255,255,0) 38%),
+    radial-gradient(140% 90% at 50% -20%,rgba(255,255,255,.18),transparent 60%);
+  mix-blend-mode:screen;
+}
+/* gradient rim */
+.glass::after{
+  content:"";position:absolute;inset:0;border-radius:inherit;padding:1px;pointer-events:none;
+  background:linear-gradient(160deg,rgba(255,255,255,.55),rgba(255,255,255,.05) 40%,rgba(255,255,255,.02) 60%,rgba(255,255,255,.3));
+  -webkit-mask:linear-gradient(#000 0 0) content-box,linear-gradient(#000 0 0);
+  -webkit-mask-composite:xor;mask-composite:exclude;
+}
+/* interaction: glass "flexes" and brightens on press */
+.press{transition:transform .45s var(--spring), background .25s}
+.press:active{transform:scale(.94);background:var(--glass-tint-strong)}
+
+/* Top bar */
+.topbar{position:fixed;z-index:20;top:calc(var(--safe-t) + 10px);left:16px;right:16px;display:flex;justify-content:space-between;pointer-events:none}
+.topbar > *{pointer-events:auto}
+.icon-btn{width:44px;height:44px;border-radius:50%;display:grid;place-items:center}
+.icon-btn svg{width:20px;height:20px}
+
+/* Floating tab bar + mini player */
+.dock{position:fixed;z-index:20;left:12px;right:12px;bottom:calc(var(--safe-b) + 10px);display:flex;flex-direction:column;gap:10px}
+.mini{height:62px;border-radius:var(--r-pill);display:flex;align-items:center;gap:12px;padding:0 8px 0 9px;text-align:left;
+  transition:transform .5s var(--spring), opacity .3s}
+.mini .art{width:46px;height:46px;border-radius:50%;flex:none}
+.mini.spin .art{animation:spin 12s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.mini .t{flex:1;min-width:0}
+.mini b{display:block;font-size:15px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.mini i{font-style:normal;font-size:13px;color:var(--text-2)}
+.mini .ctl{width:44px;height:44px;border-radius:50%;display:grid;place-items:center}
+.mini .ctl svg{width:22px;height:22px}
+.mini-progress{position:absolute;left:22px;right:22px;bottom:5px;height:2px;border-radius:2px;background:rgba(255,255,255,.12);overflow:hidden}
+.mini-progress div{height:100%;width:0;background:var(--text)}
+
+.tabs{height:66px;border-radius:var(--r-pill);display:flex;padding:6px;position:relative}
+.tab-pill{position:absolute;top:6px;bottom:6px;left:6px;border-radius:var(--r-pill);background:rgba(255,255,255,.14);
+  box-shadow:inset 0 1px 0 rgba(255,255,255,.3);transition:transform .55s var(--spring), width .55s var(--spring)}
+.tab{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;font-size:11px;font-weight:600;
+  color:var(--text-2);position:relative;z-index:1;transition:color .25s}
+.tab svg{width:24px;height:24px}
+.tab.on{color:var(--accent)}
+
+/* ---------- NOW PLAYING SHEET ---------- */
+.sheet{position:fixed;inset:0;z-index:50;transform:translateY(100%);transition:transform .6s var(--ease);
+  display:flex;flex-direction:column;padding:calc(var(--safe-t) + 14px) 24px calc(var(--safe-b) + 24px);overflow:hidden}
+.sheet.open{transform:none}
+.sheet .bgart{position:absolute;inset:-30%;z-index:-2;filter:blur(70px) saturate(160%);transform:scale(1.1)}
+.sheet .bgdim{position:absolute;inset:0;z-index:-1;background:linear-gradient(180deg,rgba(0,0,0,.15),rgba(0,0,0,.55))}
+.grabber{width:40px;height:5px;border-radius:3px;background:rgba(255,255,255,.4);margin:0 auto 18px;cursor:pointer}
+.np-art{width:100%;max-width:360px;aspect-ratio:1;margin:12px auto 28px;border-radius:24px;
+  box-shadow:0 30px 60px rgba(0,0,0,.45);transition:transform .6s var(--spring)}
+.sheet:not(.playing) .np-art{transform:scale(.86)}
+.np-head{display:flex;align-items:center;gap:12px;max-width:360px;width:100%;margin:0 auto}
+.np-head .t{flex:1;min-width:0}
+.np-head b{display:block;font-size:22px;font-weight:700;letter-spacing:-.01em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.np-head i{font-style:normal;font-size:18px;color:var(--text-2)}
+.heart{width:40px;height:40px;border-radius:50%;display:grid;place-items:center}
+.heart svg{width:20px;height:20px}
+.heart.on svg{fill:var(--accent);stroke:var(--accent)}
+
+.scrub{max-width:360px;width:100%;margin:22px auto 0}
+.bar{height:6px;border-radius:3px;background:rgba(255,255,255,.2);position:relative;cursor:pointer;transition:height .25s var(--spring)}
+.bar:active{height:12px}
+.bar .fill{position:absolute;inset:0 auto 0 0;border-radius:inherit;background:rgba(255,255,255,.9)}
+.times{display:flex;justify-content:space-between;font-size:12px;color:var(--text-2);margin-top:8px;font-variant-numeric:tabular-nums}
+
+.controls{display:flex;justify-content:space-between;align-items:center;max-width:320px;width:100%;margin:22px auto 0}
+.cbtn{width:64px;height:64px;border-radius:50%;display:grid;place-items:center}
+.cbtn svg{width:30px;height:30px}
+.cbtn.big{width:84px;height:84px}
+.cbtn.big svg{width:38px;height:38px}
+
+.np-foot{margin-top:auto;display:flex;justify-content:center;gap:10px;padding-top:20px}
+.np-foot .glass{height:46px;padding:0 18px;border-radius:var(--r-pill);display:flex;align-items:center;gap:8px;font-size:14px;font-weight:600}
+.np-foot svg{width:18px;height:18px}
+.np-foot .on{color:var(--accent)}
+
+svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+svg.fill{fill:currentColor;stroke:none}
+
+@media (prefers-reduced-transparency:reduce){
+  .glass{background:rgba(40,40,48,.92);-webkit-backdrop-filter:none;backdrop-filter:none}
+}
+@media (prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<div class="ambient" id="ambient"></div>
+
+<!-- Top bar -->
+<div class="topbar">
+  <button class="glass icon-btn press" aria-label="Profile">
+    <svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
+  </button>
+  <button class="glass icon-btn press" aria-label="Add music">
+    <svg viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></svg>
+  </button>
+</div>
+
+<main class="app" id="app">
+  <!-- HOME -->
+  <section class="view active" data-view="home">
+    <h1>Listen</h1>
+    <button class="hero" id="hero" style="width:100%;text-align:left">
+      <div class="art" id="heroArt"></div>
+      <div class="meta"><small>Made for you</small><h3>Late Night Mix</h3></div>
+    </button>
+    <h2>Recently played <span>See all</span></h2>
+    <div class="row" id="recent"></div>
+    <h2>Up next</h2>
+    <div class="list" id="homeList"></div>
+  </section>
+
+  <!-- SEARCH -->
+  <section class="view" data-view="search">
+    <h1>Search</h1>
+    <div class="search-field">
+      <svg viewBox="0 0 24 24" style="width:20px;height:20px;color:var(--text-3)"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+      <input id="q" placeholder="Songs, artists, albums" autocomplete="off">
+    </div>
+    <div class="chips" id="chips"></div>
+    <div class="list" id="results" style="margin-top:12px"></div>
+  </section>
+
+  <!-- LIBRARY -->
+  <section class="view" data-view="library">
+    <h1>Library</h1>
+    <div class="chips">
+      <button class="chip on">Songs</button><button class="chip">Albums</button><button class="chip">Playlists</button><button class="chip">Liked</button>
+    </div>
+    <div class="list" id="libList" style="margin-top:12px"></div>
+  </section>
+</main>
+
+<!-- Floating glass dock -->
+<div class="dock">
+  <button class="glass mini press" id="mini">
+    <div class="art" id="miniArt"></div>
+    <div class="t"><b id="miniTitle">—</b><i id="miniArtist">—</i></div>
+    <span class="ctl" id="miniPlay" role="button" aria-label="Play/Pause"></span>
+    <span class="ctl" id="miniNext" role="button" aria-label="Next">
+      <svg class="fill" viewBox="0 0 24 24"><path d="M5 5.5v13l9-6.5zM14 5.5v13l9-6.5z"/></svg>
+    </span>
+    <div class="mini-progress"><div id="miniFill"></div></div>
+  </button>
+  <nav class="glass tabs" id="tabs">
+    <div class="tab-pill" id="pill"></div>
+    <button class="tab on" data-tab="home">
+      <svg viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
+    <button class="tab" data-tab="search">
+      <svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>Search</button>
+    <button class="tab" data-tab="library">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="5" height="18" rx="1.5"/><rect x="10" y="3" width="5" height="18" rx="1.5"/><path d="m17.5 4 3.5 16"/></svg>Library</button>
+  </nav>
+</div>
+
+<!-- Now Playing -->
+<section class="sheet" id="sheet">
+  <div class="bgart" id="npBg"></div>
+  <div class="bgdim"></div>
+  <div class="grabber" id="close"></div>
+  <div class="np-art art" id="npArt"></div>
+  <div class="np-head">
+    <div class="t"><b id="npTitle"></b><i id="npArtist"></i></div>
+    <button class="glass heart press" id="heart" aria-label="Like">
+      <svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>
+    </button>
+  </div>
+  <div class="scrub">
+    <div class="bar" id="bar"><div class="fill" id="fill"></div></div>
+    <div class="times"><span id="cur">0:00</span><span id="rem">-0:00</span></div>
+  </div>
+  <div class="controls">
+    <button class="cbtn press" id="prev" aria-label="Previous"><svg class="fill" viewBox="0 0 24 24"><path d="M19 5.5v13l-9-6.5zM10 5.5v13l-9-6.5z"/></svg></button>
+    <button class="glass cbtn big press" id="play" aria-label="Play/Pause"></button>
+    <button class="cbtn press" id="next" aria-label="Next"><svg class="fill" viewBox="0 0 24 24"><path d="M5 5.5v13l9-6.5zM14 5.5v13l9-6.5z"/></svg></button>
+  </div>
+  <div class="np-foot">
+    <button class="glass press" id="shuf"><svg viewBox="0 0 24 24"><path d="M16 3h5v5M4 20 21 3M21 16v5h-5M15 15l6 6M4 4l5 5"/></svg>Shuffle</button>
+    <button class="glass press" id="rep"><svg viewBox="0 0 24 24"><path d="m17 2 4 4-4 4"/><path d="M3 11v-1a4 4 0 0 1 4-4h14M7 22l-4-4 4-4"/><path d="M21 13v1a4 4 0 0 1-4 4H3"/></svg>Repeat</button>
+    <button class="glass press"><svg viewBox="0 0 24 24"><path d="M8 6h13M8 12h13M8 18h13M3 6h.01M3 12h.01M3 18h.01"/></svg>Queue</button>
+  </div>
+</section>
+
+<script>
+// Placeholder library — swap for your real files later
+const G = [
+  ["#ff5f6d","#ffc371"],["#6a11cb","#2575fc"],["#00c9a7","#0f4c75"],["#f857a6","#ff5858"],
+  ["#43cea2","#185a9d"],["#f7971e","#ffd200"],["#8e2de2","#4a00e0"],["#11998e","#38ef7d"],
+  ["#fc466b","#3f5efb"],["#ee0979","#ff6a00"]
+];
+const tracks = [
+  ["Neon Tide","Placeholder Artist",214],["Glass Hours","Sample Band",187],["Low Orbit","Demo Kid",242],
+  ["Paper Suns","Test Signal",199],["Velvet Static","Placeholder Artist",228],["Golden Hour Loop","Sample Band",176],
+  ["Midnight Ferry","Demo Kid",265],["Soft Machines","Test Signal",203],["Afterglow","Placeholder Artist",221],
+  ["Northern Lines","Sample Band",250]
+].map(([title,artist,dur],i)=>({id:i,title,artist,dur,g:G[i%G.length]}));
+
+const grad = g => `linear-gradient(135deg,${g[0]},${g[1]})`;
+const fmt = s => `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,"0")}`;
+const $ = id => document.getElementById(id);
+const ICON_PLAY = '<svg class="fill" viewBox="0 0 24 24"><path d="M7 4.5v15l13-7.5z"/></svg>';
+const ICON_PAUSE = '<svg class="fill" viewBox="0 0 24 24"><rect x="6" y="4.5" width="4" height="15" rx="1"/><rect x="14" y="4.5" width="4" height="15" rx="1"/></svg>';
+
+const state = {i:0,t:0,playing:false,liked:new Set(),shuffle:false,repeat:false};
+
+function trackRow(t){
+  const b=document.createElement("button");
+  b.className="track"; b.dataset.id=t.id;
+  b.innerHTML=`<div class="art" style="--g:${grad(t.g)}"></div>
+    <div class="t"><b>${t.title}</b><i>${t.artist}</i></div><span class="dur">${fmt(t.dur)}</span>`;
+  b.onclick=()=>{load(t.id);play(true)};
+  return b;
+}
+function renderLists(){
+  const recent=$("recent"); recent.innerHTML="";
+  tracks.slice(0,6).forEach(t=>{
+    const b=document.createElement("button"); b.className="tile";
+    b.innerHTML=`<div class="art" style="--g:${grad(t.g)}"></div><b>${t.title}</b><i>${t.artist}</i>`;
+    b.onclick=()=>{load(t.id);play(true)}; recent.appendChild(b);
+  });
+  $("homeList").replaceChildren(...tracks.slice(4,9).map(trackRow));
+  $("libList").replaceChildren(...tracks.map(trackRow));
+  search("");
+  $("heroArt").style.setProperty("--g",`linear-gradient(135deg,#3f5efb,#fc466b 60%,#ffc371)`);
+  $("hero").onclick=()=>{load(0);play(true)};
+  const chips=["Chill","Focus","Workout","Jazz","Late night"];
+  $("chips").innerHTML=chips.map(c=>`<button class="chip">${c}</button>`).join("");
+}
+function search(q){
+  q=q.toLowerCase();
+  $("results").replaceChildren(...tracks.filter(t=>(t.title+t.artist).toLowerCase().includes(q)).map(trackRow));
+  markPlaying();
+}
+$("q").oninput=e=>search(e.target.value);
+
+function markPlaying(){
+  document.querySelectorAll(".track").forEach(el=>el.classList.toggle("playing",+el.dataset.id===state.i));
+}
+function load(i){
+  state.i=(i+tracks.length)%tracks.length; state.t=0;
+  const t=tracks[state.i], g=grad(t.g);
+  ["miniArt","npArt","npBg"].forEach(id=>$(id).style.setProperty("--g",g));
+  $("npBg").style.background=g;
+  $("ambient").style.background=`radial-gradient(60% 50% at 20% 10%,${t.g[0]},transparent),radial-gradient(60% 50% at 90% 40%,${t.g[1]},transparent)`;
+  $("miniTitle").textContent=$("npTitle").textContent=t.title;
+  $("miniArtist").textContent=$("npArtist").textContent=t.artist;
+  $("heart").classList.toggle("on",state.liked.has(t.id));
+  markPlaying(); tick(0);
+}
+function play(on=!state.playing){
+  state.playing=on;
+  $("play").innerHTML=$("miniPlay").innerHTML=on?ICON_PAUSE:ICON_PLAY;
+  $("sheet").classList.toggle("playing",on);
+  $("mini").classList.toggle("spin",on);
+}
+function next(dir=1){
+  if(state.shuffle&&dir===1) load(Math.floor(Math.random()*tracks.length));
+  else load(state.i+dir);
+}
+function tick(dt){
+  const t=tracks[state.i];
+  if(state.playing){ state.t+=dt; if(state.t>=t.dur){ state.repeat?state.t=0:next(); } }
+  const p=state.t/t.dur*100;
+  $("fill").style.width=$("miniFill").style.width=p+"%";
+  $("cur").textContent=fmt(state.t); $("rem").textContent="-"+fmt(t.dur-state.t);
+}
+let last=performance.now();
+(function loop(now){ tick((now-last)/1000); last=now; requestAnimationFrame(loop); })(last);
+
+// Controls
+$("play").onclick=()=>play();
+$("miniPlay").onclick=e=>{e.stopPropagation();play()};
+$("miniNext").onclick=e=>{e.stopPropagation();next()};
+$("next").onclick=()=>next();
+$("prev").onclick=()=>state.t>3?state.t=0:next(-1);
+$("heart").onclick=()=>{const id=tracks[state.i].id;state.liked.has(id)?state.liked.delete(id):state.liked.add(id);$("heart").classList.toggle("on")};
+$("shuf").onclick=()=>{state.shuffle=!state.shuffle;$("shuf").classList.toggle("on",state.shuffle)};
+$("rep").onclick=()=>{state.repeat=!state.repeat;$("rep").classList.toggle("on",state.repeat)};
+$("bar").onclick=e=>{const r=e.currentTarget.getBoundingClientRect();state.t=(e.clientX-r.left)/r.width*tracks[state.i].dur};
+
+// Sheet open/close + swipe down to dismiss
+$("mini").onclick=()=>$("sheet").classList.add("open");
+$("close").onclick=()=>$("sheet").classList.remove("open");
+let sy=null;
+$("sheet").addEventListener("touchstart",e=>{sy=e.touches[0].clientY},{passive:true});
+$("sheet").addEventListener("touchend",e=>{if(sy!==null&&e.changedTouches[0].clientY-sy>110)$("sheet").classList.remove("open");sy=null});
+
+// Tabs with sliding glass pill
+const tabs=[...document.querySelectorAll(".tab")];
+function movePill(btn){
+  const pill=$("pill"), nav=$("tabs").getBoundingClientRect(), r=btn.getBoundingClientRect();
+  pill.style.width=r.width+"px"; pill.style.transform=`translateX(${r.left-nav.left-6}px)`;
+}
+tabs.forEach(b=>b.onclick=()=>{
+  tabs.forEach(x=>x.classList.toggle("on",x===b)); movePill(b);
+  document.querySelectorAll(".view").forEach(v=>v.classList.toggle("active",v.dataset.view===b.dataset.tab));
+  $("app").scrollTo({top:0});
+});
+addEventListener("resize",()=>movePill(document.querySelector(".tab.on")));
+
+renderLists(); load(0); play(false);
+requestAnimationFrame(()=>movePill(tabs[0]));
+if("serviceWorker" in navigator && location.protocol.startsWith("http")) navigator.serviceWorker.register("sw.js").catch(()=>{});
+</script>
+</body>
+</html>
