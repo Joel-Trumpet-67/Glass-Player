@@ -514,10 +514,115 @@ const au = $("au");
 const byId = id => tracks.find(t => t.id === id);
 const playable = t => !!t.file || (CLOUD && state.online);
 
+
+/* ================= generated cover art =================
+   Original art made on the device: 5 styles, colors and layout seeded per song. */
+function rng(seed){ let s = (seed >>> 0) || 1; return () => (s = (Math.imul(s, 1664525) + 1013904223) >>> 0) / 4294967296; }
+let grainTile = null;
+function grain(){
+  if (grainTile) return grainTile;
+  const g = document.createElement("canvas"); g.width = g.height = 160;
+  const gx = g.getContext("2d"), d = gx.createImageData(160, 160);
+  for (let i = 0; i < d.data.length; i += 4){ const v = Math.random() * 255; d.data[i] = d.data[i+1] = d.data[i+2] = v; d.data[i+3] = 18; }
+  gx.putImageData(d, 0, 0); return (grainTile = g);
+}
+function wrapLines(x, text, maxW, maxLines){
+  const words = text.split(/\s+/), lines = []; let line = "";
+  for (const w of words){
+    const test = line ? line + " " + w : w;
+    if (x.measureText(test).width > maxW && line){ lines.push(line); line = w; } else line = test;
+  }
+  if (line) lines.push(line);
+  if (lines.length > maxLines){
+    const keep = lines.slice(0, maxLines); let last = keep[maxLines - 1];
+    while (x.measureText(last + "…").width > maxW && last.length) last = last.slice(0, -1);
+    keep[maxLines - 1] = last.trimEnd() + "…"; return keep;
+  }
+  return lines;
+}
+async function makeCover(t, seed){
+  const S = 640, c = document.createElement("canvas"); c.width = c.height = S;
+  const x = c.getContext("2d"), r = rng(seed);
+  const h0 = r() * 360, hue = k => ((h0 + k) % 360 + 360) % 360;
+  const col = (k, sat, lig, a = 1) => `hsla(${hue(k)},${sat}%,${lig}%,${a})`;
+  const style = (((seed >>> 0) ^ ((seed >>> 0) >>> 11)) >>> 0) % 5;
+  const accent = 140 + r() * 80;
+
+  if (style === 0){            // aura: soft colored light
+    x.fillStyle = col(0, 45, 9); x.fillRect(0, 0, S, S);
+    for (let i = 0; i < 4; i++){
+      const cx = r() * S, cy = r() * S * .8, rad = S * (.45 + r() * .4);
+      const g = x.createRadialGradient(cx, cy, 0, cx, cy, rad);
+      g.addColorStop(0, col(i * accent / 2, 85, 60, .85)); g.addColorStop(1, col(i * accent / 2, 85, 50, 0));
+      x.fillStyle = g; x.fillRect(0, 0, S, S);
+    }
+  } else if (style === 1){     // rings: off-center ripples
+    const g = x.createLinearGradient(0, 0, S, S); g.addColorStop(0, col(0, 70, 22)); g.addColorStop(1, col(accent, 70, 12));
+    x.fillStyle = g; x.fillRect(0, 0, S, S);
+    const cx = S * (.3 + r() * .4), cy = S * (.25 + r() * .3);
+    for (let i = 26; i > 0; i--){
+      x.beginPath(); x.arc(cx, cy, i * S / 26, 0, Math.PI * 2);
+      x.strokeStyle = col(i % 2 ? 0 : accent, 80, 70, .08 + (26 - i) / 120); x.lineWidth = 2 + (i % 3); x.stroke();
+    }
+    x.beginPath(); x.arc(cx, cy, S * .12, 0, Math.PI * 2); x.fillStyle = col(accent, 90, 62); x.fill();
+  } else if (style === 2){     // blocks: bauhaus grid
+    const pal = [col(0, 70, 55), col(accent, 75, 50), col(accent / 2, 60, 85), col(0, 40, 14)];
+    x.fillStyle = col(accent / 2, 30, 90); x.fillRect(0, 0, S, S);
+    const n = 3, cell = S / n;
+    for (let gy = 0; gy < n; gy++) for (let gx = 0; gx < n; gx++){
+      const px = gx * cell, py = gy * cell, f = pal[Math.floor(r() * pal.length)], kind = Math.floor(r() * 4), rot = Math.floor(r() * 4);
+      x.fillStyle = pal[Math.floor(r() * pal.length)]; x.fillRect(px, py, cell, cell);
+      x.save(); x.translate(px + cell / 2, py + cell / 2); x.rotate(rot * Math.PI / 2); x.fillStyle = f; x.beginPath();
+      if (kind === 0){ x.moveTo(-cell/2, -cell/2); x.arc(-cell/2, -cell/2, cell, 0, Math.PI / 2); }
+      else if (kind === 1){ x.arc(0, cell/2, cell/2, Math.PI, 0); }
+      else if (kind === 2){ x.arc(0, 0, cell * .32, 0, Math.PI * 2); }
+      else { x.moveTo(-cell/2, cell/2); x.lineTo(cell/2, cell/2); x.lineTo(cell/2, -cell/2); }
+      x.fill(); x.restore();
+    }
+  } else if (style === 3){     // waves: stacked lines
+    x.fillStyle = col(0, 50, 8); x.fillRect(0, 0, S, S);
+    const amp = 18 + r() * 40, freq = 1.5 + r() * 3, ph = r() * 6;
+    for (let i = 0; i < 34; i++){
+      const y0 = S * .08 + i * S / 38;
+      const g = x.createLinearGradient(0, 0, S, 0); g.addColorStop(0, col(i * 4, 85, 60, .9)); g.addColorStop(1, col(accent + i * 4, 85, 60, .9));
+      x.strokeStyle = g; x.lineWidth = 3; x.beginPath();
+      for (let px = 0; px <= S; px += 8){
+        const y = y0 + Math.sin(px / S * Math.PI * freq + ph + i * .25) * amp * Math.sin(i / 34 * Math.PI);
+        px ? x.lineTo(px, y) : x.moveTo(px, y);
+      }
+      x.stroke();
+    }
+  } else {                     // sun: big circle over a horizon
+    const g = x.createLinearGradient(0, 0, 0, S); g.addColorStop(0, col(accent, 60, 18)); g.addColorStop(1, col(0, 70, 45));
+    x.fillStyle = g; x.fillRect(0, 0, S, S);
+    const cy = S * (.38 + r() * .12), rad = S * (.2 + r() * .1);
+    const sg = x.createLinearGradient(0, cy - rad, 0, cy + rad); sg.addColorStop(0, col(accent / 3, 95, 72)); sg.addColorStop(1, col(0, 90, 55));
+    x.fillStyle = sg; x.beginPath(); x.arc(S / 2, cy, rad, 0, Math.PI * 2); x.fill();
+    x.fillStyle = col(accent, 60, 18);
+    for (let i = 0; i < 6; i++){ const y = cy + rad * (.15 + i * .17); x.fillRect(0, y, S, 3 + i * 2.2); }
+    x.fillStyle = col(accent, 55, 10, .85); x.fillRect(0, S * .66, S, S);
+  }
+
+  x.fillStyle = x.createPattern(grain(), "repeat"); x.fillRect(0, 0, S, S);
+  const scrim = x.createLinearGradient(0, S * .55, 0, S); scrim.addColorStop(0, "rgba(0,0,0,0)"); scrim.addColorStop(1, "rgba(0,0,0,.55)");
+  x.fillStyle = scrim; x.fillRect(0, S * .55, S, S * .45);
+
+  const pad = 40, font = '-apple-system, BlinkMacSystemFont, "SF Pro Display", "Helvetica Neue", Arial, sans-serif';
+  x.textBaseline = "alphabetic"; x.fillStyle = "#fff";
+  x.font = `800 58px ${font}`;
+  const lines = wrapLines(x, t.title.replace(/\s*[\(\[]?\s*(ft\.?|feat\.?|featuring)\s.*$/i, "") || t.title, S - pad * 2, 2);
+  x.font = `500 26px ${font}`; x.fillStyle = "rgba(255,255,255,.78)";
+  x.fillText(t.artist === "Unknown Artist" ? "" : t.artist, pad, S - pad);
+  x.font = `800 58px ${font}`; x.fillStyle = "#fff";
+  lines.reverse().forEach((ln, i) => x.fillText(ln, pad, S - pad - 40 - i * 62));
+
+  return new Promise(res => c.toBlob(b => res(b), "image/jpeg", .86));
+}
+
 /* ================= library: one interface, two backends ================= */
 const Lib = {
   async load(){
-    if (!CLOUD){ tracks = await DB.all("tracks").catch(() => []); return; }
+    if (!CLOUD){ tracks = await DB.all("tracks").catch(() => []); setTimeout(autoCovers, 500); return; }
     let meta;
     try {
       const [tr, lk] = await Promise.all([
@@ -583,6 +688,19 @@ const Lib = {
     await sb.storage.from(BUCKET).remove([t.path, t.coverPath].filter(Boolean));
     await DB.del("cache", t.id).catch(() => {});
   },
+  async setCover(t, blob, g){
+    if (!CLOUD){ t.cover = blob; t.g = g; return DB.put("tracks", t); }
+    const path = `covers/${t.id}-${Date.now().toString(36)}.jpg`;
+    const up = await sb.storage.from(BUCKET).upload(path, blob, { contentType: "image/jpeg", upsert: true });
+    if (up.error) throw up.error;
+    const r = await sb.from("tracks").update({ cover_path: path, color1: g[0], color2: g[1] }).eq("id", t.id);
+    if (r.error){ await sb.storage.from(BUCKET).remove([path]); throw r.error; }
+    const old = t.coverPath;
+    t.coverPath = path; t.cover = blob; t.g = g;
+    await cachePatch(t.id, { cover: blob });
+    if (old && old !== path) sb.storage.from(BUCKET).remove([old]).catch(() => {});
+    ls.set("gp.meta", tracks.map(stripBlobs));
+  },
   async like(t, v){
     if (!CLOUD) return DB.put("tracks", t);
     const r = v ? await sb.from("likes").upsert({ track_id: t.id }) : await sb.from("likes").delete().eq("track_id", t.id);
@@ -611,7 +729,49 @@ async function fetchCovers(){
     if (++n % 8 === 0) renderAll();
   }
   if (need.length) renderAll();
+  autoCovers();
 }
+let coverJob = false;
+async function autoCovers(){
+  if (coverJob) return;
+  const need = tracks.filter(t => !t.cover && !t.coverPath);
+  if (!need.length || (CLOUD && !state.online)) return;
+  coverJob = true;
+  let n = 0;
+  for (const t of need){
+    if (!byId(t.id) || t.cover || t.coverPath) continue;
+    try {
+      const blob = await makeCover(t, hash(t.id));
+      const g = (await coverColors(blob)) || t.g;
+      await Lib.setCover(t, blob, g);
+      coverURL.delete(t.id);
+      if (++n % 6 === 0) renderAll();
+      if (state.cur?.id === t.id) refreshNowPlayingArt();
+    } catch { break; }
+  }
+  coverJob = false;
+  if (n) renderAll();
+}
+function refreshNowPlayingArt(){
+  const t = state.cur; if (!t) return;
+  setArt($("miniArt"), t, 18); setArt($("npArt"), t, 72);
+  $("npBg").setAttribute("style", artStyle(t));
+  $("ambient").style.background = `radial-gradient(60% 50% at 20% 10%,${t.g[0]},transparent),radial-gradient(60% 50% at 90% 40%,${t.g[1]},transparent)`;
+  setMediaSession(t);
+}
+async function newCover(t){
+  toast("Making new art…", 0);
+  try {
+    const blob = await makeCover(t, (Math.random() * 2 ** 32) >>> 0);
+    const g = (await coverColors(blob)) || t.g;
+    if (coverURL.has(t.id)){ URL.revokeObjectURL(coverURL.get(t.id)); coverURL.delete(t.id); }
+    await Lib.setCover(t, blob, g);
+    coverURL.delete(t.id);
+    renderAll(); if (state.cur?.id === t.id) refreshNowPlayingArt();
+    toast("New cover saved");
+  } catch { toast("Couldn't save the cover. Check your connection."); }
+}
+
 const downloading = new Map();
 function download(t){
   if (t.file) return Promise.resolve(t.file);
@@ -743,6 +903,7 @@ async function importFiles(files){
 
   importing = false;
   renderAll();
+  setTimeout(autoCovers, 800);
   if (total.stop) toast(total.stop, 5000);
   else toast(total.added || total.skipped
     ? `Added ${total.added} song${total.added === 1 ? "" : "s"}${total.skipped ? ` · ${total.skipped} already in library` : ""}`
@@ -1048,6 +1209,7 @@ function openActions(t){
     <button class="opt" data-do="next"><svg viewBox="0 0 24 24"><path d="M3 6h13M3 12h9M3 18h9M17 13v8M13 17h8"/></svg>Play next</button>
     <button class="opt" data-do="like"><svg viewBox="0 0 24 24"><path d="M12 20s-7-4.4-7-10a4 4 0 0 1 7-2.6A4 4 0 0 1 19 10c0 5.6-7 10-7 10z"/></svg>${t.liked ? "Remove from Liked" : "Add to Liked"}</button>
     ${CLOUD && !t.file ? `<button class="opt" data-do="save"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg>Save to this device</button>` : ""}
+    <button class="opt" data-do="art"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="9" cy="9" r="2"/><path d="m21 15-5-5L5 21"/></svg>New cover art</button>
     <button class="opt" data-do="edit"><svg viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16z"/></svg>Edit title and artist</button>
     <button class="opt danger" data-do="del"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg>Remove from library</button>`);
   a.querySelectorAll(".opt").forEach(o => o.onclick = () => doAction(o.dataset.do, t));
@@ -1060,6 +1222,8 @@ async function doAction(what, t){
     closeActions();
   } else if (what === "like"){
     closeActions(); await setLiked(t, !t.liked);
+  } else if (what === "art"){
+    closeActions(); newCover(t);
   } else if (what === "save"){
     closeActions(); toast("Saving…", 0);
     try { await download(t); toast("Saved to this device"); renderAll(); } catch { toast("Couldn't save it. Check your connection."); }
