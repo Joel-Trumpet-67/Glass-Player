@@ -1,6 +1,6 @@
 // Network-first for the app shell so updates show up right away,
 // falling back to the cache when offline. Music lives in IndexedDB, not here.
-const CACHE = "glass-player-v4";
+const CACHE = "glass-player-v5";
 const FILES = ["./", "./index.html", "./config.js", "./supabase.js", "./jszip.min.js", "./manifest.webmanifest", "./icon-192.png", "./icon-512.png", "./apple-touch-icon.png"];
 
 self.addEventListener("install", e => {
